@@ -34,20 +34,16 @@ _img_lock = threading.Lock()
 IMG_CACHE_MAX = 600
 
 # ---------------------------------------------------------------- 유튜브
-# 카테고리 → 유튜브 검색어 매핑
+# 카테고리 → 유튜브 검색어 목록 (카테고리마다 여러 검색 결과를 합쳐 조회수순 정렬)
 CATEGORIES = {
-    "먹방": "먹방",
-    "뷰티/패션": "뷰티 메이크업 패션",
-    "브이로그": "브이로그",
-    "예능/코미디": "예능 웃긴 영상",
-    "영화/드라마": "영화 드라마 리뷰",
-    "테크/IT": "테크 리뷰",
-    "지식/교육": "지식 교양",
-    "여행": "여행",
-    "동물": "강아지 고양이",
+    "AI 툴": ["AI 툴 추천", "챗GPT 활용법", "AI 업무 자동화", "AI 영상 만드는 법", "클로드 AI 사용법"],
+    "콘텐츠 제작": ["콘텐츠 기획", "영상 편집 꿀팁", "캡컷 편집", "썸네일 만들기"],
+    "마케팅/광고": ["마케팅 전략", "퍼포먼스 마케팅", "메타 광고 세팅", "브랜딩 사례"],
+    "블로그/SEO": ["네이버 블로그 상위노출", "블로그 수익화", "SEO 최적화", "블로그 글쓰기"],
+    "인스타/숏폼": ["인스타 마케팅", "숏폼 마케팅", "인스타그램 팔로워 늘리기", "릴스 만드는 법", "유튜브 쇼츠 조회수"],
 }
-# "전체" 탭은 아래 카테고리들을 합쳐 조회수순으로 재정렬
-ALL_MERGE = ["먹방", "브이로그", "예능/코미디", "뷰티/패션", "영화/드라마", "여행"]
+# "전체" 탭은 각 카테고리의 앞쪽 검색어 N개씩을 합쳐 조회수순으로 재정렬
+ALL_MERGE_PER_CATEGORY = 2
 
 # 검색 필터 protobuf: 업로드 날짜 (2=오늘, 3=이번 주, 4=이번 달)
 PERIOD_CODE = {"day": 2, "week": 3, "month": 4}
@@ -64,15 +60,24 @@ PERIOD_EXCLUDE = {
 IG_APP_ID = "936619743392459"  # instagram.com 웹이 쓰는 공개 앱 ID
 ACCOUNTS_FILE = os.path.join(BASE_DIR, "reels_accounts.json")
 DEFAULT_IG_ACCOUNTS = [
-    "openai", "runwayapp", "pika_labs", "lumalabsai", "midjourney",
-    "klingai_official", "heygen_official", "higgsfield.ai", "googledeepmind",
+    "lilsucone",
+    "kimhol_",
+    "kennenblog",
+    "godseng.mom",
+    "eroon_design",
+    "ad.igging",
+    "success_eunjin",
+    "beucheo.ai",
+    "usa.mminz",
+    "nolza_couple",
+    "ma.yoonn",
 ]
 
 # ---------------------------------------------------------------- X (트위터)
 X_ACCOUNTS_FILE = os.path.join(BASE_DIR, "x_accounts.json")
 DEFAULT_X_ACCOUNTS = [
     "OpenAI", "runwayml", "Kling_ai", "GoogleDeepMind", "midjourney",
-    "LumaLabsAI", "pika_labs", "heygen_com", "elevenlabsio", "AIatMeta",
+    "LumaLabsAI", "pika_labs", "heygen_com", "ElevenLabs", "AIatMeta",
 ]
 
 # ---------------------------------------------------------------- 스레드(Threads)
@@ -93,7 +98,6 @@ TIKWM_BASE = "https://www.tikwm.com/api"
 TIKTOK_REGION = "KR"
 
 # ---------------------------------------------------------------- AI 영상 탭
-AI_YT_QUERIES = ["AI 영상 제작", "AI 영상 생성", "sora ai video", "runway kling veo"]
 NEWS_FEEDS = [
     ("국내", "https://news.google.com/rss/search?q=" +
      quote('AI 영상 생성 OR "AI 비디오" OR 영상생성모델') + "&hl=ko&gl=KR&ceid=KR:ko"),
@@ -110,7 +114,9 @@ IMG_PROXY_ALLOW = (".cdninstagram.com", ".fbcdn.net", ".ytimg.com",
 IMGINN_BASE = "https://imginn.com"
 # X(트위터) syndication 타임라인 API 폐쇄 대응: nitter RSS로 트윗 목록을 얻고
 # 트윗별 통계는 임베드용 공개 CDN(tweet-result)에서 가져옵니다
-NITTER_INSTANCES = ("nitter.net", "xcancel.com", "nitter.privacyredirect.com")
+# (2026-11 기준 nitter.net 폐쇄(410)·xcancel 451 — 살아 있는 인스턴스를 앞에 둡니다)
+NITTER_INSTANCES = ("nitter.kareem.one", "nitter.net", "xcancel.com",
+                    "nitter.privacyredirect.com")
 RSS_UA = "Mozilla/5.0 (compatible; RSSReader/1.0)"
 # 스레드 실시간 GraphQL이 막혔을 때 사용할 RSSHub 공개 인스턴스들
 RSSHUB_INSTANCES = ("rsshub.rssforever.com", "hub.slarker.me", "rsshub.pseudoyu.com")
@@ -260,11 +266,9 @@ def get_videos(category: str, period: str, shorts: bool, force: bool, enrich: bo
         if query:
             queries = [query]
         elif category == "전체":
-            queries = [CATEGORIES[c] for c in ALL_MERGE]
-        elif category == "AI":
-            queries = AI_YT_QUERIES
+            queries = [q for qs in CATEGORIES.values() for q in qs[:ALL_MERGE_PER_CATEGORY]]
         else:
-            queries = [CATEGORIES.get(category, category)]
+            queries = CATEGORIES.get(category, [category])
         vids = merge_yt_searches(queries, period, shorts)
         if enrich:
             enrich_likes(vids)
@@ -307,7 +311,60 @@ def _parse_imginn_time(text: str) -> int:
         return 0
 
 
+def fetch_ig_reels_embed(username: str):
+    """인스타그램 공식 프로필 임베드(/<user>/embed/)에서 최근 게시물 6개를 가져옵니다.
+    무인증 공개 위젯이며 좋아요·댓글·캡션·썸네일·게시 시각이 들어 있습니다(조회수 없음).
+    카드뉴스(캐러셀)·사진 위주 계정도 있어 모든 게시물을 넣고, 영상이 아니면 제목 앞에 유형을 붙입니다."""
+    # 데스크톱 크롬 UA로 요청하면 데이터 없는 다른 페이지가 와서 일반 UA를 씁니다
+    _, body = http_get("https://www.instagram.com/%s/embed/" % quote(username),
+                       headers={"User-Agent": RSS_UA}, timeout=15)
+    page = body.decode("utf-8", "ignore")
+    key = '"contextJSON":'
+    i = page.find(key)
+    if i < 0:
+        return []
+    raw, _ = json.JSONDecoder().raw_decode(page, i + len(key))
+    data = json.loads(raw) if isinstance(raw, str) else raw
+    ctx = (data or {}).get("context") or {}  # 비공개·없는 계정은 context가 비어 있습니다
+    reels = []
+    for wrap in ctx.get("graphql_media") or []:
+        m = wrap.get("shortcode_media") or {}
+        if not m.get("shortcode"):
+            continue
+        is_video = bool(m.get("is_video"))
+        kind = "" if is_video else (
+            "[카드뉴스] " if m.get("__typename") == "GraphSidecar" else "[사진] ")
+        edges = (m.get("edge_media_to_caption") or {}).get("edges") or []
+        caption = ((edges[0].get("node") or {}).get("text") or "") if edges else ""
+        thumb = m.get("display_url") or ""
+        for r in m.get("display_resources") or []:
+            if r.get("config_width") == 640 and r.get("src"):
+                thumb = r["src"]
+        reels.append({
+            "account": username,
+            "title": kind + (caption.strip().split("\n")[0][:120] or "(설명 없음)"),
+            "views": m.get("video_view_count") or 0,
+            "likes": (m.get("edge_liked_by") or {}).get("count") or 0,
+            "comments": (m.get("edge_media_to_comment") or {}).get("count") or 0,
+            "thumbnail": thumb,
+            "url": "https://www.instagram.com/%s/%s/" % ("reel" if is_video else "p", m["shortcode"]),
+            "takenAt": m.get("taken_at_timestamp") or 0,
+        })
+    return reels
+
+
 def fetch_ig_reels(username: str):
+    """공식 프로필 임베드를 먼저 쓰고, 실패하면 imginn 미러로 폴백합니다."""
+    try:
+        reels = fetch_ig_reels_embed(username)
+        if reels:
+            return reels
+    except Exception:
+        pass
+    return fetch_ig_reels_imginn(username)
+
+
+def fetch_ig_reels_imginn(username: str):
     """imginn.com(인스타그램 미러)에서 계정의 최근 릴스를 가져옵니다.
     인스타그램이 무인증 API를 차단(429)해 미러를 사용합니다.
     미러에는 조회수가 없어 0으로 두고, 좋아요·댓글은 상세 페이지에서 채웁니다."""
@@ -403,7 +460,8 @@ def fetch_x_posts(username: str):
     (기존 syndication 타임라인 API가 2026년 무인증 접근을 차단(429)한 데 대한 대응.
     이 조합에는 리트윗·조회수가 없어 0으로 둡니다 — 좋아요·댓글은 실데이터)"""
     xml_text = None
-    for host in NITTER_INSTANCES:
+    # 살아 있는 첫 인스턴스는 일시적으로 실패하는 경우가 있어 한 번 더 시도합니다
+    for host in (NITTER_INSTANCES[0],) + NITTER_INSTANCES:
         try:
             _, body = http_get("https://%s/%s/rss" % (host, quote(username)),
                                headers={"User-Agent": RSS_UA,
@@ -734,7 +792,7 @@ def fetch_hf_models():
 
 
 def get_ai_data(force: bool):
-    # AI 탭은 '글'(모델·뉴스)만 제공합니다. AI 영상은 유튜브 탭의 'AI' 카테고리로 통합됨.
+    # AI 탭은 '글'(모델·뉴스)만 제공합니다. AI 영상은 유튜브 탭의 'AI 툴' 카테고리로 통합됨.
     def fetch():
         with ThreadPoolExecutor(max_workers=2) as pool:
             news_f = pool.submit(fetch_news)
@@ -791,7 +849,7 @@ class Handler(BaseHTTPRequestHandler):
             shorts = qs.get("shorts", ["0"])[0] == "1"
             enrich = qs.get("enrich", ["0"])[0] == "1"
             query = qs.get("q", [""])[0].strip()
-            if not query and category not in ("전체", "AI") and category not in CATEGORIES:
+            if not query and category != "전체" and category not in CATEGORIES:
                 self._send(400, {"error": "unknown category"})
                 return
             videos, fetched_at = get_videos(category, period, shorts, force, enrich, query)
@@ -799,7 +857,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/categories":
-            self._send(200, {"categories": ["전체", "AI"] + list(CATEGORIES.keys())})
+            self._send(200, {"categories": ["전체"] + list(CATEGORIES.keys())})
             return
 
         if parsed.path == "/api/reels":
