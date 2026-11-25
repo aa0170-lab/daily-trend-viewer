@@ -467,8 +467,12 @@ def fetch_x_posts(username: str):
     (기존 syndication 타임라인 API가 2026년 무인증 접근을 차단(429)한 데 대한 대응.
     이 조합에는 리트윗·조회수가 없어 0으로 둡니다 — 좋아요·댓글은 실데이터)"""
     xml_text = None
-    # 살아 있는 첫 인스턴스는 일시적으로 실패하는 경우가 있어 한 번 더 시도합니다
-    for host in (NITTER_INSTANCES[0],) + NITTER_INSTANCES:
+    # 살아 있는 첫 인스턴스는 요청이 몰리면 429(잠시 제한)를 주므로 간격을 두고 재시도합니다
+    attempts = [(NITTER_INSTANCES[0], 0), (NITTER_INSTANCES[0], 8), (NITTER_INSTANCES[0], 20)]
+    attempts += [(h, 0) for h in NITTER_INSTANCES[1:]]
+    for host, wait in attempts:
+        if wait:
+            time.sleep(wait)
         try:
             _, body = http_get("https://%s/%s/rss" % (host, quote(username)),
                                headers={"User-Agent": RSS_UA,
@@ -529,10 +533,13 @@ def get_x_posts(force: bool):
     accounts = load_accounts(X_ACCOUNTS_FILE, DEFAULT_X_ACCOUNTS)
 
     def fetch():
-        # syndication은 동시 요청이 많으면 빈 응답을 주므로 동시성을 낮춥니다.
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            results = pool.map(fetch_x_posts, accounts)
-        return [p for chunk in results for p in chunk]
+        # nitter 인스턴스가 하나뿐이라 계정을 하나씩, 간격을 두고 가져옵니다(429 방지)
+        posts = []
+        for i, acc in enumerate(accounts):
+            if i:
+                time.sleep(2)
+            posts.extend(fetch_x_posts(acc))
+        return posts
     posts, fetched_at = cached(("x", tuple(accounts)), force, fetch)
     return posts, accounts, fetched_at
 
@@ -702,20 +709,36 @@ def fetch_tiktok_user(handle: str):
     url = "%s/user/posts?unique_id=%s&count=12" % (TIKWM_BASE, quote(handle))
     try:
         d = http_json(url, timeout=15)
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            raise  # tikwm이 계정 조회를 막음(2026-11~ 403) — 호출부에서 나머지 계정 생략
+        return []
     except Exception:
         return []
     vids = (d.get("data") or {}).get("videos") or []
     return [_tiktok_item(v) for v in vids]
 
 
-def fetch_tiktok_trending():
+def fetch_tiktok_trending(rounds=12, target=80):
+    """인기 피드는 한 번에 8~18개만 주고 호출마다 다른 영상이 섞여 나오므로,
+    무료 티어 제한(초당 1회)에 맞춰 간격을 두고 여러 번 불러 모읍니다."""
     url = "%s/feed/list?region=%s&count=20" % (TIKWM_BASE, TIKTOK_REGION)
-    try:
-        d = http_json(url, timeout=15)
-    except Exception:
-        return []
-    vids = d.get("data") or []
-    return [_tiktok_item(v) for v in vids]
+    items, seen = [], set()
+    for i in range(rounds):
+        if i:
+            time.sleep(1.2)
+        try:
+            vids = http_json(url, timeout=15).get("data") or []
+        except Exception:
+            continue
+        for v in vids:
+            it = _tiktok_item(v)
+            if it["id"] and it["id"] not in seen:
+                seen.add(it["id"])
+                items.append(it)
+        if len(items) >= target:
+            break
+    return items
 
 
 def get_tiktok(force: bool):
@@ -725,9 +748,13 @@ def get_tiktok(force: bool):
         # 트렌딩(전체 인기) + 구독 계정 최신 영상을 합쳐 중복 제거.
         # tikwm 무료 티어의 레이트리밋을 피하려 동시성을 낮춥니다.
         posts = fetch_tiktok_trending()
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            for chunk in pool.map(fetch_tiktok_user, accounts):
-                posts.extend(chunk)
+        for i, acc in enumerate(accounts):
+            if i:
+                time.sleep(1.2)
+            try:
+                posts.extend(fetch_tiktok_user(acc))
+            except urllib.error.HTTPError:
+                break  # 계정 조회가 막혀 있으면 나머지 계정도 건너뜁니다
         seen, unique = set(), []
         for p in posts:
             if p["id"] and p["id"] not in seen:

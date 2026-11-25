@@ -81,8 +81,6 @@ def download_images(items, field):
 def carry_forward(name, items_key, current):
     """수집 결과가 비었으면 이전 배포 스냅샷과 커밋된 시드(seed/) 중 최신 것을 재사용합니다.
     (집 PC에서만 접근 가능한 소스(imginn 등)를 GitHub 서버가 못 가져올 때의 폴백)"""
-    if current.get(items_key):
-        return current
     prev = None
     try:
         _, body = server.http_get(PAGES_BASE + "data/" + name, timeout=15)
@@ -95,13 +93,26 @@ def carry_forward(name, items_key, current):
             seed = json.load(f)
     except (OSError, json.JSONDecodeError):
         pass
+    n_cur = len(current.get(items_key) or [])
     best, label = None, ""
-    for cand, lab in ((prev, "이전 스냅샷"), (seed, "시드")):
-        if cand and cand.get(items_key) and \
-                (best is None or cand.get("fetchedAt", 0) > best.get("fetchedAt", 0)):
-            best, label = cand, lab
-    if not best:
-        return current
+    if n_cur:
+        # 이번 수집이 일부만 성공했을 때(GitHub 서버 IP 제한 등): 하루 안에 만든
+        # 시드·스냅샷이 더 많으면 그것을 씁니다(집 맥에서 update_seed.py로 공급)
+        now = time.time()
+        for cand, lab in ((seed, "시드"), (prev, "이전 스냅샷")):
+            items = (cand or {}).get(items_key) or []
+            if now - (cand or {}).get("fetchedAt", 0) < 36 * 3600 and \
+                    len(items) > max(n_cur, len((best or {}).get(items_key) or [])):
+                best, label = cand, lab
+        if not best:
+            return current
+    else:
+        for cand, lab in ((prev, "이전 스냅샷"), (seed, "시드")):
+            if cand and cand.get(items_key) and \
+                    (best is None or cand.get("fetchedAt", 0) > best.get("fetchedAt", 0)):
+                best, label = cand, lab
+        if not best:
+            return current
     for it in best[items_key]:
         for fld in ("thumbnail", "media"):
             v = it.get(fld) or ""
@@ -121,7 +132,7 @@ def carry_forward(name, items_key, current):
                         fh.write(img)
             except Exception:
                 it[fld] = ""
-    print("  → %s: 이번 수집 실패, %s %d개 재사용" % (name, label, len(best[items_key])))
+    print("  → %s: 이번 수집 %d개, %s %d개 사용" % (name, n_cur, label, len(best[items_key])))
     return best
 
 
