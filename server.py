@@ -34,16 +34,20 @@ _img_lock = threading.Lock()
 IMG_CACHE_MAX = 600
 
 # ---------------------------------------------------------------- 유튜브
-# 카테고리 → 유튜브 검색어 목록 (카테고리마다 여러 검색 결과를 합쳐 조회수순 정렬)
+# 카테고리 → 유튜브 검색어 목록 (여러 검색 결과를 합쳐 조회수순 정렬)
 CATEGORIES = {
-    "AI 툴": ["AI 툴 추천", "챗GPT 활용법", "AI 업무 자동화", "AI 영상 만드는 법", "클로드 AI 사용법"],
-    "콘텐츠 제작": ["콘텐츠 기획", "영상 편집 꿀팁", "캡컷 편집", "썸네일 만들기"],
-    "마케팅/광고": ["마케팅 전략", "퍼포먼스 마케팅", "메타 광고 세팅", "브랜딩 사례"],
-    "블로그/SEO": ["네이버 블로그 상위노출", "블로그 수익화", "SEO 최적화", "블로그 글쓰기"],
-    "인스타/숏폼": ["인스타 마케팅", "숏폼 마케팅", "인스타그램 팔로워 늘리기", "릴스 만드는 법", "유튜브 쇼츠 조회수"],
+    "먹방": ["먹방", "mukbang", "먹방 리얼사운드", "편의점 먹방"],
+    "뷰티/패션": ["메이크업", "겟레디윗미", "패션 하울", "데일리룩"],
+    "브이로그": ["브이로그", "일상 브이로그", "직장인 브이로그"],
+    "예능/코미디": ["예능", "웃긴 영상", "몰카", "코미디"],
+    "영화/드라마": ["영화 리뷰", "드라마 리뷰", "결말포함", "영화 요약"],
+    "테크/IT": ["테크 리뷰", "아이폰", "언박싱", "갤럭시"],
+    "지식/교육": ["지식", "교양", "역사 이야기", "경제 이야기"],
+    "여행": ["여행", "여행 브이로그", "해외여행", "국내여행"],
+    "동물": ["강아지", "고양이", "동물 영상"],
 }
-# "전체" 탭은 각 카테고리의 앞쪽 검색어 N개씩을 합쳐 조회수순으로 재정렬
-ALL_MERGE_PER_CATEGORY = 2
+# "전체" 탭은 아래 카테고리의 앞쪽 검색어 2개씩을 합쳐 조회수순으로 재정렬
+ALL_MERGE = ["먹방", "브이로그", "예능/코미디", "뷰티/패션", "영화/드라마", "여행"]
 
 # 검색 필터 protobuf: 업로드 날짜 (2=오늘, 3=이번 주, 4=이번 달)
 PERIOD_CODE = {"day": 2, "week": 3, "month": 4}
@@ -98,6 +102,7 @@ TIKWM_BASE = "https://www.tikwm.com/api"
 TIKTOK_REGION = "KR"
 
 # ---------------------------------------------------------------- AI 영상 탭
+AI_YT_QUERIES = ["AI 영상 제작", "AI 영상 생성", "sora ai video", "runway kling veo"]
 NEWS_FEEDS = [
     ("국내", "https://news.google.com/rss/search?q=" +
      quote('AI 영상 생성 OR "AI 비디오" OR 영상생성모델') + "&hl=ko&gl=KR&ceid=KR:ko"),
@@ -266,7 +271,9 @@ def get_videos(category: str, period: str, shorts: bool, force: bool, enrich: bo
         if query:
             queries = [query]
         elif category == "전체":
-            queries = [q for qs in CATEGORIES.values() for q in qs[:ALL_MERGE_PER_CATEGORY]]
+            queries = [q for c in ALL_MERGE for q in CATEGORIES[c][:2]]
+        elif category == "AI":
+            queries = AI_YT_QUERIES
         else:
             queries = CATEGORIES.get(category, [category])
         vids = merge_yt_searches(queries, period, shorts)
@@ -792,7 +799,7 @@ def fetch_hf_models():
 
 
 def get_ai_data(force: bool):
-    # AI 탭은 '글'(모델·뉴스)만 제공합니다. AI 영상은 유튜브 탭의 'AI 툴' 카테고리로 통합됨.
+    # AI 탭은 '글'(모델·뉴스)만 제공합니다. AI 영상은 유튜브 탭의 'AI' 카테고리로 통합됨.
     def fetch():
         with ThreadPoolExecutor(max_workers=2) as pool:
             news_f = pool.submit(fetch_news)
@@ -849,7 +856,7 @@ class Handler(BaseHTTPRequestHandler):
             shorts = qs.get("shorts", ["0"])[0] == "1"
             enrich = qs.get("enrich", ["0"])[0] == "1"
             query = qs.get("q", [""])[0].strip()
-            if not query and category != "전체" and category not in CATEGORIES:
+            if not query and category not in ("전체", "AI") and category not in CATEGORIES:
                 self._send(400, {"error": "unknown category"})
                 return
             videos, fetched_at = get_videos(category, period, shorts, force, enrich, query)
@@ -857,7 +864,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/categories":
-            self._send(200, {"categories": ["전체"] + list(CATEGORIES.keys())})
+            self._send(200, {"categories": ["전체", "AI"] + list(CATEGORIES.keys())})
             return
 
         if parsed.path == "/api/reels":
