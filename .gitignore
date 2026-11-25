@@ -8,3 +8,4 @@ _site/
 .claude/
 seed_task.log
 .gstack/
+seed_launchd.log
