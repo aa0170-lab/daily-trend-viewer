@@ -9,3 +9,4 @@ _site/
 seed_task.log
 .gstack/
 seed_launchd.log
+server.log
