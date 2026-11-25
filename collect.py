@@ -2,7 +2,7 @@
 """GitHub Pages용 정적 스냅샷 빌더.
 server.py의 수집 함수를 재사용해 모든 탭 데이터를 JSON으로 저장하고,
 핫링크가 막힌 썸네일(인스타/틱톡/트위터 CDN)은 내려받아 로컬 파일로 바꿉니다.
-GitHub Actions가 1시간마다 실행해 결과를 GitHub Pages로 배포합니다.
+GitHub Actions가 매일 오전 7시(KST)에 실행해 결과를 GitHub Pages로 배포합니다.
 사용: python3 collect.py [출력폴더=_site]
 """
 import hashlib
